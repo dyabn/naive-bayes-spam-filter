@@ -160,7 +160,13 @@ python -m unittest discover -s tests -v
 python -m py_compile database.py bayes.py mail_service.py ui.py main.py
 ```
 
-## 11. 项目截图
+## 11. 训练记录
+
+本项目已补充一组平衡训练样本，使默认训练集从 16 条扩充到 52 条。训练目标、补充样本和训练前后测试结果见：
+
+[训练记录与效果评估](docs/training_report.md)
+
+## 12. 项目截图
 
 ### 主界面
 
@@ -182,7 +188,7 @@ python -m py_compile database.py bayes.py mail_service.py ui.py main.py
 
 ![人工纠错](docs/images/05_feedback_correction.png)
 
-## 12. Git 提交说明
+## 13. Git 提交说明
 
 本项目按阶段提交，历史清晰对应开发过程：
 
@@ -195,4 +201,6 @@ feat: implement mail sending and folder workflows
 feat: implement classification correction and feedback learning
 feat: add Tkinter graphical user interface
 docs: improve README and add demo checklist
+docs: add system demonstration screenshots
+train: expand curated spam and normal training samples
 ```
