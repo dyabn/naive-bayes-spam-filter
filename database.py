@@ -269,6 +269,57 @@ def add_training_sample(
         return int(row["id"])
 
 
+def add_or_update_feedback_sample_with_connection(
+    connection: sqlite3.Connection,
+    content: str,
+    label: int,
+) -> int:
+    """Insert or update one user feedback sample and return its id."""
+
+    if label not in (0, 1):
+        raise ValueError("label must be 0 for normal mail or 1 for spam mail")
+
+    row = connection.execute(
+        """
+        SELECT id FROM training_data
+        WHERE content = ? AND source = 'user_feedback'
+        ORDER BY id
+        LIMIT 1
+        """,
+        (content,),
+    ).fetchone()
+
+    if row is not None:
+        sample_id = int(row["id"])
+        connection.execute(
+            "UPDATE training_data SET label = ? WHERE id = ?",
+            (label, sample_id),
+        )
+        return sample_id
+
+    cursor = connection.execute(
+        """
+        INSERT INTO training_data (content, label, source)
+        VALUES (?, ?, 'user_feedback')
+        """,
+        (content, label),
+    )
+    return int(cursor.lastrowid)
+
+
+def add_or_update_feedback_sample(
+    content: str,
+    label: int,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> int:
+    """Insert or update a user feedback sample and commit the change."""
+
+    with get_connection(db_path) as connection:
+        sample_id = add_or_update_feedback_sample_with_connection(connection, content, label)
+        connection.commit()
+        return sample_id
+
+
 def list_training_data(db_path: str | Path = DEFAULT_DB_PATH) -> list[sqlite3.Row]:
     """Return all training samples ordered by id."""
 
@@ -358,6 +409,52 @@ def list_emails(
 
     with get_connection(db_path) as connection:
         return connection.execute(query, params).fetchall()
+
+
+def get_email_by_id(email_id: int, db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Row | None:
+    """Return one email by id."""
+
+    with get_connection(db_path) as connection:
+        return connection.execute(
+            "SELECT * FROM emails WHERE id = ?",
+            (email_id,),
+        ).fetchone()
+
+
+def update_email_folder_and_label_with_connection(
+    connection: sqlite3.Connection,
+    email_id: int,
+    folder: str,
+    is_spam: int,
+) -> None:
+    """Update one received email's folder and final spam label."""
+
+    if folder not in {"inbox", "trash"}:
+        raise ValueError("folder must be inbox or trash for correction")
+    if is_spam not in (0, 1):
+        raise ValueError("is_spam must be 0 or 1")
+
+    connection.execute(
+        """
+        UPDATE emails
+        SET folder = ?, is_spam = ?
+        WHERE id = ?
+        """,
+        (folder, is_spam, email_id),
+    )
+
+
+def update_email_folder_and_label(
+    email_id: int,
+    folder: str,
+    is_spam: int,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> None:
+    """Update one received email's folder and final spam label."""
+
+    with get_connection(db_path) as connection:
+        update_email_folder_and_label_with_connection(connection, email_id, folder, is_spam)
+        connection.commit()
 
 
 def get_table_counts(db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, int]:

@@ -31,6 +31,15 @@ class SendMailResult(TypedDict):
     classification: ClassificationResult
 
 
+class CorrectionResult(TypedDict):
+    email_id: int
+    folder: str
+    is_spam: bool
+    training_sample_id: int
+    training_label: int
+    training_text: str
+
+
 def combine_mail_text(subject: str | None, content: str | None) -> str:
     """Combine subject and body text safely for classification."""
 
@@ -227,3 +236,61 @@ def get_trash(
             """,
             (user_id,),
         ).fetchall()
+
+
+def _correct_received_mail(
+    email_id: int,
+    folder: str,
+    label: int,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+) -> CorrectionResult:
+    with database.get_connection(db_path) as connection:
+        email = connection.execute(
+            "SELECT * FROM emails WHERE id = ?",
+            (email_id,),
+        ).fetchone()
+        if email is None:
+            raise ValueError(f"email not found: {email_id}")
+        if email["folder"] == "sent":
+            raise ValueError("sent mail cannot be corrected")
+
+        training_text = combine_mail_text(email["subject"], email["content"])
+        database.update_email_folder_and_label_with_connection(
+            connection,
+            email_id=email_id,
+            folder=folder,
+            is_spam=label,
+        )
+        training_sample_id = database.add_or_update_feedback_sample_with_connection(
+            connection,
+            content=training_text,
+            label=label,
+        )
+        connection.commit()
+
+    return {
+        "email_id": email_id,
+        "folder": folder,
+        "is_spam": bool(label),
+        "training_sample_id": training_sample_id,
+        "training_label": label,
+        "training_text": training_text,
+    }
+
+
+def mark_as_spam(
+    email_id: int,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+) -> CorrectionResult:
+    """Move one received mail to trash and learn it as spam feedback."""
+
+    return _correct_received_mail(email_id, "trash", 1, db_path)
+
+
+def mark_as_normal(
+    email_id: int,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+) -> CorrectionResult:
+    """Move one received mail to inbox and learn it as normal feedback."""
+
+    return _correct_received_mail(email_id, "inbox", 0, db_path)
