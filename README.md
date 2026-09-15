@@ -162,23 +162,25 @@ python -m py_compile database.py bayes.py mail_service.py ui.py main.py
 
 ## 11. 项目截图
 
-建议在完成人工演示后，将截图保存到：
+### 主界面
 
-```text
-docs/images/
-```
+![主界面](docs/images/01_main_interface.png)
 
-推荐文件名：
+### 正常邮件分类
 
-```text
-01_main_interface.png
-02_normal_mail.png
-03_rule_spam.png
-04_bayes_spam.png
-05_feedback_correction.png
-```
+![正常邮件](docs/images/02_normal_mail.png)
 
-截图可用于课程报告或答辩 PPT。
+### 固定关键词垃圾邮件
+
+![固定关键词垃圾邮件](docs/images/03_rule_spam.png)
+
+### 贝叶斯垃圾邮件
+
+![贝叶斯垃圾邮件](docs/images/04_bayes_spam.png)
+
+### 人工纠错
+
+![人工纠错](docs/images/05_feedback_correction.png)
 
 ## 12. Git 提交说明
 
