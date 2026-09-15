@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
@@ -21,6 +22,13 @@ class ClassificationResult(TypedDict):
     classification_method: str
     classification_reason: str
     matched_keywords: list[str]
+
+
+class SendMailResult(TypedDict):
+    sent_email_id: int
+    received_email_id: int
+    receiver_folder: str
+    classification: ClassificationResult
 
 
 def combine_mail_text(subject: str | None, content: str | None) -> str:
@@ -80,3 +88,142 @@ def classify_mail(
         "classification_reason": reason,
         "matched_keywords": get_matched_feature_words(text),
     }
+
+
+def _insert_email_record(
+    connection,
+    sender_id: int,
+    receiver_id: int,
+    subject: str,
+    content: str,
+    send_time: str,
+    folder: str,
+    classification: ClassificationResult,
+) -> int:
+    cursor = connection.execute(
+        """
+        INSERT INTO emails (
+            sender_id,
+            receiver_id,
+            subject,
+            content,
+            send_time,
+            spam_probability,
+            normal_probability,
+            is_spam,
+            folder,
+            classification_method,
+            classification_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            sender_id,
+            receiver_id,
+            subject,
+            content,
+            send_time,
+            classification["spam_probability"],
+            classification["normal_probability"],
+            1 if classification["is_spam"] else 0,
+            folder,
+            classification["classification_method"],
+            classification["classification_reason"],
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def send_mail(
+    sender_id: int,
+    receiver_id: int,
+    subject: str,
+    content: str,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+) -> SendMailResult:
+    """Send a mail and create both sender and receiver folder records."""
+
+    classification = classify_mail(subject, content, db_path)
+    receiver_folder = "trash" if classification["is_spam"] else "inbox"
+    send_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with database.get_connection(db_path) as connection:
+        sent_email_id = _insert_email_record(
+            connection,
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            subject=subject,
+            content=content,
+            send_time=send_time,
+            folder="sent",
+            classification=classification,
+        )
+        received_email_id = _insert_email_record(
+            connection,
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            subject=subject,
+            content=content,
+            send_time=send_time,
+            folder=receiver_folder,
+            classification=classification,
+        )
+        connection.commit()
+
+    return {
+        "sent_email_id": sent_email_id,
+        "received_email_id": received_email_id,
+        "receiver_folder": receiver_folder,
+        "classification": classification,
+    }
+
+
+def get_inbox(
+    user_id: int,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+):
+    """Return normal received mail for the given user."""
+
+    with database.get_connection(db_path) as connection:
+        return connection.execute(
+            """
+            SELECT * FROM emails
+            WHERE receiver_id = ? AND folder = 'inbox'
+            ORDER BY id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+
+def get_sent(
+    user_id: int,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+):
+    """Return sent mail records for the given user."""
+
+    with database.get_connection(db_path) as connection:
+        return connection.execute(
+            """
+            SELECT * FROM emails
+            WHERE sender_id = ? AND folder = 'sent'
+            ORDER BY id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+
+def get_trash(
+    user_id: int,
+    db_path: str | Path = database.DEFAULT_DB_PATH,
+):
+    """Return spam received mail for the given user."""
+
+    with database.get_connection(db_path) as connection:
+        return connection.execute(
+            """
+            SELECT * FROM emails
+            WHERE receiver_id = ? AND folder = 'trash'
+            ORDER BY id DESC
+            """,
+            (user_id,),
+        ).fetchall()

@@ -83,8 +83,8 @@ def create_tables(connection: sqlite3.Connection) -> None:
             subject TEXT NOT NULL,
             content TEXT NOT NULL,
             send_time TEXT NOT NULL,
-            spam_probability REAL NOT NULL DEFAULT 0,
-            normal_probability REAL NOT NULL DEFAULT 0,
+            spam_probability REAL,
+            normal_probability REAL,
             is_spam INTEGER NOT NULL DEFAULT 0 CHECK (is_spam IN (0, 1)),
             folder TEXT NOT NULL CHECK (folder IN ('inbox', 'sent', 'trash')),
             classification_method TEXT,
@@ -102,7 +102,74 @@ def create_tables(connection: sqlite3.Connection) -> None:
         );
         """
     )
+    migrate_email_probability_columns(connection)
     connection.commit()
+
+
+def migrate_email_probability_columns(connection: sqlite3.Connection) -> None:
+    """Allow rule-classified emails to store NULL Bayesian probabilities."""
+
+    table_info = connection.execute("PRAGMA table_info(emails)").fetchall()
+    if not table_info:
+        return
+
+    columns = {row["name"]: row for row in table_info}
+    probability_columns = ("spam_probability", "normal_probability")
+    if all(columns[column]["notnull"] == 0 for column in probability_columns):
+        return
+
+    connection.executescript(
+        """
+        CREATE TABLE emails_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            receiver_id INTEGER NOT NULL,
+            subject TEXT NOT NULL,
+            content TEXT NOT NULL,
+            send_time TEXT NOT NULL,
+            spam_probability REAL,
+            normal_probability REAL,
+            is_spam INTEGER NOT NULL DEFAULT 0 CHECK (is_spam IN (0, 1)),
+            folder TEXT NOT NULL CHECK (folder IN ('inbox', 'sent', 'trash')),
+            classification_method TEXT,
+            classification_reason TEXT,
+            FOREIGN KEY (sender_id) REFERENCES users (id),
+            FOREIGN KEY (receiver_id) REFERENCES users (id)
+        );
+
+        INSERT INTO emails_new (
+            id,
+            sender_id,
+            receiver_id,
+            subject,
+            content,
+            send_time,
+            spam_probability,
+            normal_probability,
+            is_spam,
+            folder,
+            classification_method,
+            classification_reason
+        )
+        SELECT
+            id,
+            sender_id,
+            receiver_id,
+            subject,
+            content,
+            send_time,
+            spam_probability,
+            normal_probability,
+            is_spam,
+            folder,
+            classification_method,
+            classification_reason
+        FROM emails;
+
+        DROP TABLE emails;
+        ALTER TABLE emails_new RENAME TO emails;
+        """
+    )
 
 
 def seed_users(connection: sqlite3.Connection, users: Iterable[tuple[str, str]] = INITIAL_USERS) -> None:
@@ -215,8 +282,8 @@ def add_email(
     subject: str,
     content: str,
     folder: str,
-    spam_probability: float = 0.0,
-    normal_probability: float = 0.0,
+    spam_probability: float | None = 0.0,
+    normal_probability: float | None = 0.0,
     is_spam: int = 0,
     classification_method: str | None = None,
     classification_reason: str | None = None,
